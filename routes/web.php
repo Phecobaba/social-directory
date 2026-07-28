@@ -37,6 +37,7 @@ Route::middleware(['auth'])->group(function () {
     Route::post('/members/import/confirm', [MemberController::class, 'confirmImport'])->name('members.import.confirm');
     Route::post('/members/import/clear', [MemberController::class, 'clearImportPreview'])->name('members.import.clear');
     Route::get('/members/import/template', [MemberController::class, 'downloadTemplate'])->name('members.import.template');
+    Route::get('/members/import', [MemberController::class, 'create'])->name('members.import.form');
     Route::post('/members/import', [MemberController::class, 'import'])->name('members.import');
 
     Route::resource('branches', BranchController::class)

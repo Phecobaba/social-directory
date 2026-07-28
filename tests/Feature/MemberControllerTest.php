@@ -75,13 +75,14 @@ class MemberControllerTest extends TestCase
         $response->assertSee('Department');
     }
 
-    public function test_member_resource_route_does_not_capture_reserved_import_path(): void
+    public function test_authenticated_user_can_open_the_member_import_form_route(): void
     {
         $user = User::factory()->create();
 
         $this->actingAs($user)
             ->get('/members/import')
-            ->assertNotFound();
+            ->assertOk()
+            ->assertSee('Bulk Import via CSV');
     }
 
     public function test_authenticated_user_can_create_member_with_photo(): void
