@@ -202,9 +202,9 @@ class MemberControllerTest extends TestCase
     {
         $user = User::factory()->create();
         $csv = implode("\n", [
-            'surname,other_names,phone_number,house_address,occupation,state_of_origin',
-            'Doe,Jane,08010101010,12 Palm Street,Engineer,Delta',
-            'Smith,John,08020202020,45 Unity Road,Teacher,Ondo',
+            'surname,other_names,DOB,phone_number,house_address,occupation,state_of_origin',
+            'Doe,Jane,18/02/1981,08010101010,12 Palm Street,Engineer,Delta',
+            'Smith,John,1985-07-09,08020202020,45 Unity Road,Teacher,Ondo',
         ]);
 
         $filePath = tempnam(sys_get_temp_dir(), 'members-import-');
@@ -242,7 +242,12 @@ class MemberControllerTest extends TestCase
         $member = Member::where('surname', 'Doe')
             ->where('other_names', 'Jane')
             ->firstOrFail();
+        $secondMember = Member::where('surname', 'Smith')
+            ->where('other_names', 'John')
+            ->firstOrFail();
 
+        $this->assertSame('1981-02-18', $member->date_of_birth?->toDateString());
+        $this->assertSame('1985-07-09', $secondMember->date_of_birth?->toDateString());
         $this->assertSame([
             'occupation' => 'Engineer',
             'state_of_origin' => 'Delta',

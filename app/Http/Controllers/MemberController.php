@@ -6,10 +6,12 @@ use App\Http\Requests\StoreMemberRequest;
 use App\Models\Branch;
 use App\Models\Member;
 use Carbon\CarbonInterface;
+use DateTimeImmutable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\View\View;
 use Symfony\Component\HttpFoundation\StreamedResponse;
@@ -193,9 +195,39 @@ class MemberController extends Controller
                 ]);
         }
 
+        $payloads = [];
+
         foreach ($importableRows as $row) {
-            Member::create($this->memberPayload($row['member_data']));
+            $memberData = $row['member_data'];
+            $dateOfBirth = $memberData['date_of_birth'] ?? null;
+
+            if ($dateOfBirth) {
+                $normalizedDate = $this->normalizeImportDate((string) $dateOfBirth);
+
+                if ($normalizedDate === null) {
+                    $request->session()->forget(self::IMPORT_PREVIEW_SESSION_KEY);
+
+                    return redirect()
+                        ->route('members.import.form')
+                        ->withErrors([
+                            'csv_file' => sprintf(
+                                'Row %s has an invalid date of birth. Use DD/MM/YYYY or YYYY-MM-DD.',
+                                $row['row_number'],
+                            ),
+                        ]);
+                }
+
+                $memberData['date_of_birth'] = $normalizedDate;
+            }
+
+            $payloads[] = $this->memberPayload($memberData);
         }
+
+        DB::transaction(function () use ($payloads): void {
+            foreach ($payloads as $payload) {
+                Member::create($payload);
+            }
+        });
 
         $request->session()->forget(self::IMPORT_PREVIEW_SESSION_KEY);
 
@@ -823,6 +855,16 @@ class MemberController extends Controller
             $memberData = $this->mapCsvRowToMemberData($preparedHeaders, $row['data']);
             $issues = [];
 
+            if (($memberData['date_of_birth'] ?? null) !== null) {
+                $normalizedDate = $this->normalizeImportDate((string) $memberData['date_of_birth']);
+
+                if ($normalizedDate === null) {
+                    $issues[] = 'Date of birth is invalid. Use DD/MM/YYYY or YYYY-MM-DD.';
+                } else {
+                    $memberData['date_of_birth'] = $normalizedDate;
+                }
+            }
+
             if (($memberData['branch_name'] ?? null) === null) {
                 if ($defaultBranchId) {
                     $memberData['branch_id'] = $defaultBranchId;
@@ -897,6 +939,28 @@ class MemberController extends Controller
             'rows' => $previewRows,
             'summary' => $summary,
         ];
+    }
+
+    private function normalizeImportDate(string $value): ?string
+    {
+        $value = trim($value);
+
+        if ($value === '') {
+            return null;
+        }
+
+        foreach (['!Y-m-d', '!d/m/Y', '!j/n/Y', '!d-m-Y', '!j-n-Y'] as $format) {
+            $date = DateTimeImmutable::createFromFormat($format, $value);
+            $errors = DateTimeImmutable::getLastErrors();
+            $isValid = $errors === false
+                || ($errors['warning_count'] === 0 && $errors['error_count'] === 0);
+
+            if ($date !== false && $isValid) {
+                return $date->format('Y-m-d');
+            }
+        }
+
+        return null;
     }
 
     private function existingDynamicEmailValues(): array
