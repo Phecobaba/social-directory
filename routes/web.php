@@ -3,6 +3,7 @@
 use App\Http\Controllers\Auth\AuthenticatedSessionController;
 use App\Http\Controllers\Auth\NewPasswordController;
 use App\Http\Controllers\Auth\PasswordResetLinkController;
+use App\Http\Controllers\BranchController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\MemberController;
 use Illuminate\Support\Facades\Route;
@@ -32,11 +33,16 @@ Route::middleware(['auth'])->group(function () {
     Route::post('/members/bulk-edit', [MemberController::class, 'bulkEdit'])->name('members.bulk-edit');
     Route::post('/members/bulk-update', [MemberController::class, 'bulkUpdate'])->name('members.bulk-update');
     Route::post('/members/bulk-delete', [MemberController::class, 'bulkDestroy'])->name('members.bulk-delete');
+    Route::delete('/members', [MemberController::class, 'destroyFromRequest'])->name('members.destroy-from-request');
     Route::post('/members/import/confirm', [MemberController::class, 'confirmImport'])->name('members.import.confirm');
     Route::post('/members/import/clear', [MemberController::class, 'clearImportPreview'])->name('members.import.clear');
     Route::get('/members/import/template', [MemberController::class, 'downloadTemplate'])->name('members.import.template');
     Route::post('/members/import', [MemberController::class, 'import'])->name('members.import');
 
+    Route::resource('branches', BranchController::class)
+        ->only(['index', 'store', 'update', 'destroy']);
+
     Route::resource('members', MemberController::class)
-        ->only(['index', 'create', 'store', 'show', 'edit', 'update', 'destroy']);
+        ->only(['index', 'create', 'store', 'show', 'edit', 'update', 'destroy'])
+        ->whereNumber('member');
 });
