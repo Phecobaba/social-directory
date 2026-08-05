@@ -28,14 +28,28 @@
                             </div>
                         @endif
 
-                        <div class="alert alert-info">
-                            Updating <strong>{{ $members->count() }}</strong> selected member(s).
+                        <div class="alert alert-info">Updating <strong>{{ $members->count() }}</strong> selected member(s).</div>
+
+                        <div class="form-group">
+                            <label for="branch_id">Move Selected Members to Branch</label>
+                            <select id="branch_id" name="branch_id" class="form-control">
+                                <option value="">Keep existing branch</option>
+                                @foreach ($branches as $branch)
+                                    <option value="{{ $branch->id }}">{{ $branch->name }}</option>
+                                @endforeach
+                            </select>
                         </div>
 
                         <div class="form-group">
-                            <label for="address">Replace Address for Selected Members</label>
-                            <textarea class="form-control" id="address" name="address" rows="4">{{ old('address') }}</textarea>
-                            <small class="form-text text-muted">Leave blank to keep each member's existing address.</small>
+                            <label for="house_address">Replace House Address</label>
+                            <textarea class="form-control" id="house_address" name="house_address" rows="3">{{ old('house_address') }}</textarea>
+                            <small class="form-text text-muted">Leave blank to keep each member's existing house address.</small>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="office_address">Replace Office Address</label>
+                            <textarea class="form-control" id="office_address" name="office_address" rows="3">{{ old('office_address') }}</textarea>
+                            <small class="form-text text-muted">Leave blank to keep each member's existing office address.</small>
                         </div>
 
                         @php
@@ -44,9 +58,7 @@
                         <div class="card card-outline card-secondary">
                             <div class="card-header d-flex justify-content-between align-items-center">
                                 <h3 class="card-title mb-0">Dynamic Fields to Add or Update</h3>
-                                <button type="button" class="btn btn-sm btn-primary" id="add-custom-field">
-                                    Add Field
-                                </button>
+                                <button type="button" class="btn btn-sm btn-primary" id="add-custom-field">Add Field</button>
                             </div>
                             <div class="card-body">
                                 <div id="custom-fields-container">
@@ -75,16 +87,18 @@
                                 <thead>
                                     <tr>
                                         <th>Member</th>
+                                        <th>Branch</th>
                                         <th>Phone</th>
-                                        <th>Current Address</th>
+                                        <th>Current House Address</th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     @foreach ($members as $member)
                                         <tr>
                                             <td>{{ $member->full_name }}</td>
+                                            <td>{{ $member->branch?->name ?: 'N/A' }}</td>
                                             <td>{{ $member->phone_number }}</td>
-                                            <td>{{ $member->address ?: 'N/A' }}</td>
+                                            <td>{{ $member->house_address ?: 'N/A' }}</td>
                                         </tr>
                                     @endforeach
                                 </tbody>

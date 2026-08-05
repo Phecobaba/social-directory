@@ -25,12 +25,19 @@
         .content-wrapper form + .btn {
             margin-top: 0.35rem;
         }
+        .pagination {
+            flex-wrap: wrap;
+            gap: 0.25rem;
+        }
         @media (max-width: 767.98px) {
             .content-header .col-sm-6 + .col-sm-6 {
                 margin-top: 0.75rem;
             }
             .main-footer {
                 text-align: center;
+            }
+            .pagination {
+                justify-content: center;
             }
         }
     </style>
@@ -84,6 +91,12 @@
                         <a href="{{ route('members.index') }}" class="nav-link {{ request()->routeIs('members.*') ? 'active' : '' }}">
                             <i class="nav-icon fas fa-users"></i>
                             <p>Members</p>
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a href="{{ route('branches.index') }}" class="nav-link {{ request()->routeIs('branches.*') ? 'active' : '' }}">
+                            <i class="nav-icon fas fa-code-branch"></i>
+                            <p>Branches</p>
                         </a>
                     </li>
                 </ul>

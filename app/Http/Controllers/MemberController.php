@@ -3,35 +3,76 @@
 namespace App\Http\Controllers;
 
 use App\Http\Requests\StoreMemberRequest;
+use App\Models\Branch;
 use App\Models\Member;
+use Carbon\CarbonInterface;
+use DateTimeImmutable;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
-use Symfony\Component\HttpFoundation\StreamedResponse;
 use Illuminate\View\View;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class MemberController extends Controller
 {
     private const IMPORT_PREVIEW_SESSION_KEY = 'member_import_preview';
 
+    private const MEMBER_FIELDS = [
+        'branch_id',
+        'title',
+        'surname',
+        'other_names',
+        'date_of_birth',
+        'place_of_birth',
+        'town_of_origin',
+        'village',
+        'local_government_of_origin',
+        'state_of_origin',
+        'occupation',
+        'height',
+        'phone_number',
+        'next_of_kin_name',
+        'next_of_kin_relationship',
+        'next_of_kin_phone',
+        'father_name',
+        'mother_name',
+        'wife_name',
+        'house_address',
+        'office_address',
+        'photo',
+    ];
+
     public function index(Request $request): View
     {
         $search = $request->input('search');
-        $memberQuery = $this->memberSearchQuery($search);
+        $selectedBranchId = $request->integer('branch_id') ?: null;
+
+        $memberQuery = $this->memberSearchQuery($search, $selectedBranchId);
         $availableDynamicFields = $this->availableDynamicFields(clone $memberQuery);
 
         $members = $memberQuery
+            ->with('branch')
             ->latest()
-            ->paginate(10);
+            ->paginate(10)
+            ->appends($request->query());
 
-        return view('members.index', compact('members', 'search', 'availableDynamicFields'));
+        $branches = Branch::query()->orderBy('name')->get(['id', 'name']);
+
+        return view('members.index', compact(
+            'members',
+            'search',
+            'selectedBranchId',
+            'branches',
+            'availableDynamicFields'
+        ));
     }
 
     public function backup(): StreamedResponse
     {
-        $members = Member::query()->latest()->get();
+        $members = Member::query()->with('branch')->latest()->get();
 
         return response()->streamDownload(function () use ($members) {
             echo json_encode([
@@ -42,9 +83,29 @@ class MemberController extends Controller
                 'members' => $members->map(function (Member $member) {
                     return [
                         'id' => $member->id,
+                        'branch_id' => $member->branch_id,
+                        'branch' => $member->branch?->name,
+                        'title' => $member->title,
+                        'surname' => $member->surname,
+                        'other_names' => $member->other_names,
                         'full_name' => $member->full_name,
+                        'date_of_birth' => $member->date_of_birth?->toDateString(),
+                        'place_of_birth' => $member->place_of_birth,
+                        'town_of_origin' => $member->town_of_origin,
+                        'village' => $member->village,
+                        'local_government_of_origin' => $member->local_government_of_origin,
+                        'state_of_origin' => $member->state_of_origin,
+                        'occupation' => $member->occupation,
+                        'height' => $member->height,
                         'phone_number' => $member->phone_number,
-                        'address' => $member->address,
+                        'next_of_kin_name' => $member->next_of_kin_name,
+                        'next_of_kin_relationship' => $member->next_of_kin_relationship,
+                        'next_of_kin_phone' => $member->next_of_kin_phone,
+                        'father_name' => $member->father_name,
+                        'mother_name' => $member->mother_name,
+                        'wife_name' => $member->wife_name,
+                        'house_address' => $member->house_address,
+                        'office_address' => $member->office_address,
                         'photo' => $member->photo,
                         'dynamic_fields' => $member->dynamic_fields,
                         'created_at' => $member->created_at?->toIso8601String(),
@@ -60,27 +121,29 @@ class MemberController extends Controller
     public function create(): View
     {
         $importPreview = session(self::IMPORT_PREVIEW_SESSION_KEY);
+        $branches = Branch::query()->where('is_active', true)->orderBy('name')->get(['id', 'name']);
 
-        return view('members.create', compact('importPreview'));
+        return view('members.create', compact('importPreview', 'branches'));
     }
 
-    public function show(int $id): View
+    public function show(Member $member): View
     {
-        $member = Member::findOrFail($id);
+        $member->load('branch');
 
         return view('members.show', compact('member'));
     }
 
     public function store(StoreMemberRequest $request): RedirectResponse
     {
-        $validated = $request->validated();
+        $validated = $this->normalizeLegacyPayload($request->validated());
         $validated['dynamic_fields'] = $this->extractDynamicFields($request->input('dynamic_fields', []));
+        $payload = $this->memberPayload($validated);
 
         if ($request->hasFile('photo')) {
-            $validated['photo'] = $request->file('photo')->store('members', 'public');
+            $payload['photo'] = $request->file('photo')->store('members', 'public');
         }
 
-        Member::create($validated);
+        Member::create($payload);
 
         return redirect()
             ->route('members.index')
@@ -132,9 +195,39 @@ class MemberController extends Controller
                 ]);
         }
 
+        $payloads = [];
+
         foreach ($importableRows as $row) {
-            Member::create($row['member_data']);
+            $memberData = $row['member_data'];
+            $dateOfBirth = $memberData['date_of_birth'] ?? null;
+
+            if ($dateOfBirth) {
+                $normalizedDate = $this->normalizeImportDate((string) $dateOfBirth);
+
+                if ($normalizedDate === null) {
+                    $request->session()->forget(self::IMPORT_PREVIEW_SESSION_KEY);
+
+                    return redirect()
+                        ->route('members.import.form')
+                        ->withErrors([
+                            'csv_file' => sprintf(
+                                'Row %s has an invalid date of birth. Use DD/MM/YYYY or YYYY-MM-DD.',
+                                $row['row_number'],
+                            ),
+                        ]);
+                }
+
+                $memberData['date_of_birth'] = $normalizedDate;
+            }
+
+            $payloads[] = $this->memberPayload($memberData);
         }
+
+        DB::transaction(function () use ($payloads): void {
+            foreach ($payloads as $payload) {
+                Member::create($payload);
+            }
+        });
 
         $request->session()->forget(self::IMPORT_PREVIEW_SESSION_KEY);
 
@@ -165,8 +258,7 @@ class MemberController extends Controller
                 $row = [];
 
                 foreach ($selectedCoreFields as $field) {
-                    $value = $member->{$field};
-                    $row[] = $value instanceof \Carbon\CarbonInterface ? $value->toDateTimeString() : $value;
+                    $row[] = $this->resolveExportValue($member, $field);
                 }
 
                 foreach ($selectedDynamicFields as $field) {
@@ -201,8 +293,7 @@ class MemberController extends Controller
                 $row = [];
 
                 foreach ($selectedCoreFields as $field) {
-                    $value = $member->{$field};
-                    $row[] = $value instanceof \Carbon\CarbonInterface ? $value->toDateTimeString() : (string) ($value ?? '');
+                    $row[] = (string) $this->resolveExportValue($member, $field);
                 }
 
                 foreach ($selectedDynamicFields as $field) {
@@ -225,8 +316,52 @@ class MemberController extends Controller
             'Content-Disposition' => 'attachment; filename="dsfc-members-template.csv"',
         ];
 
-        $columns = ['full_name', 'phone_number', 'address', 'occupation', 'state_of_origin'];
-        $sampleRow = ['Jane Doe', '08012345678', '12 Palm Street', 'Engineer', 'Delta'];
+        $columns = [
+            'branch',
+            'title',
+            'surname',
+            'other_names',
+            'DOB',
+            'place_of_birth',
+            'town_of_origin',
+            'village',
+            'local_government_of_origin',
+            'state_of_origin',
+            'occupation',
+            'height',
+            'phone_number',
+            'next_of_kin_phone_number',
+            'next_of_kin_name',
+            'relationship_of_next_of_kin',
+            'father_name',
+            'mother_name',
+            'wife_name',
+            'house_address',
+            'office_address',
+        ];
+        $sampleRow = [
+            'Lagos Branch',
+            'Mrs',
+            'Doe',
+            'Jane Amara',
+            '1992-04-15',
+            'Awka',
+            'Nnewi',
+            'Uruagu',
+            'Nnewi North',
+            'Anambra',
+            'Engineer',
+            '170cm',
+            '08012345678',
+            '08098765432',
+            'John Doe',
+            'Brother',
+            'Peter Doe',
+            'Martha Doe',
+            '',
+            '12 Palm Street',
+            '3 Tech Close',
+        ];
 
         return response()->streamDownload(function () use ($columns, $sampleRow) {
             $handle = fopen('php://output', 'w');
@@ -238,11 +373,12 @@ class MemberController extends Controller
         }, 'dsfc-members-template.csv', $headers);
     }
 
-    public function edit(int $id): View
+    public function edit(Member $member): View
     {
-        $member = Member::findOrFail($id);
+        $member->load('branch');
+        $branches = Branch::query()->where('is_active', true)->orderBy('name')->get(['id', 'name']);
 
-        return view('members.edit', compact('member'));
+        return view('members.edit', compact('member', 'branches'));
     }
 
     public function bulkEdit(Request $request): View|RedirectResponse
@@ -259,8 +395,10 @@ class MemberController extends Controller
         }
 
         $members = Member::query()
+            ->with('branch')
             ->whereIn('id', $memberIds)
-            ->orderBy('full_name')
+            ->orderBy('surname')
+            ->orderBy('other_names')
             ->get();
 
         if ($members->isEmpty()) {
@@ -269,7 +407,9 @@ class MemberController extends Controller
                 ->withErrors(['bulk_actions' => 'The selected members could not be found.']);
         }
 
-        return view('members.bulk-edit', compact('members'));
+        $branches = Branch::query()->where('is_active', true)->orderBy('name')->get(['id', 'name']);
+
+        return view('members.bulk-edit', compact('members', 'branches'));
     }
 
     public function bulkUpdate(Request $request): RedirectResponse
@@ -277,6 +417,9 @@ class MemberController extends Controller
         $validated = $request->validate([
             'member_ids' => ['required', 'array', 'min:1'],
             'member_ids.*' => ['integer', 'exists:members,id'],
+            'branch_id' => ['nullable', 'integer', 'exists:branches,id'],
+            'house_address' => ['nullable', 'string'],
+            'office_address' => ['nullable', 'string'],
             'address' => ['nullable', 'string'],
             'dynamic_fields' => ['nullable', 'array'],
         ]);
@@ -286,14 +429,29 @@ class MemberController extends Controller
             ->get();
 
         $bulkDynamicFields = $this->extractDynamicFields($request->input('dynamic_fields', [])) ?? [];
-        $address = $validated['address'] ?? null;
 
         foreach ($members as $member) {
             $currentDynamicFields = $member->dynamic_fields ?? [];
-            $member->update([
-                'address' => $address !== null && $address !== '' ? $address : $member->address,
+            $updateData = [
                 'dynamic_fields' => array_replace($currentDynamicFields, $bulkDynamicFields) ?: null,
-            ]);
+            ];
+
+            if (array_key_exists('branch_id', $validated) && $validated['branch_id']) {
+                $updateData['branch_id'] = (int) $validated['branch_id'];
+            }
+
+            $address = $validated['house_address'] ?? $validated['address'] ?? '';
+
+            if ($address !== '') {
+                $updateData['house_address'] = $address;
+                $updateData['address'] = $address;
+            }
+
+            if (($validated['office_address'] ?? '') !== '') {
+                $updateData['office_address'] = $validated['office_address'];
+            }
+
+            $member->update($updateData);
         }
 
         return redirect()
@@ -321,51 +479,161 @@ class MemberController extends Controller
         }
 
         return redirect()
-            ->route('members.index')
+            ->route('members.index', $this->memberIndexRedirectQuery($request))
             ->with('status', 'Selected members deleted successfully.');
     }
 
-    public function update(Request $request, int $id): RedirectResponse
+    public function update(Request $request, Member $member): RedirectResponse
     {
-        $member = Member::findOrFail($id);
-
-        $validated = $request->validate([
-            'full_name' => ['required', 'string', 'max:255'],
-            'phone_number' => ['required', 'string', 'max:20'],
-            'address' => ['required', 'string'],
-            'photo' => ['nullable', 'image', 'max:2048'],
-            'dynamic_fields' => ['nullable', 'array'],
-        ]);
+        $validated = $this->normalizeLegacyPayload($request->validate($this->memberRules()));
         $validated['dynamic_fields'] = $this->extractDynamicFields($request->input('dynamic_fields', []));
+        $payload = $this->memberPayload($validated);
 
         if ($request->hasFile('photo')) {
             if ($member->photo) {
                 Storage::disk('public')->delete($member->photo);
             }
 
-            $validated['photo'] = $request->file('photo')->store('members', 'public');
+            $payload['photo'] = $request->file('photo')->store('members', 'public');
         }
 
-        $member->update($validated);
+        $member->update($payload);
 
         return redirect()
             ->route('members.index')
             ->with('status', 'Member updated successfully.');
     }
 
-    public function destroy(int $id): RedirectResponse
+    public function destroy(Request $request, Member $member): RedirectResponse
     {
-        $member = Member::findOrFail($id);
+        $this->deleteMember($member);
 
+        return redirect()
+            ->route('members.index', $this->memberIndexRedirectQuery($request))
+            ->with('status', 'Member deleted successfully.');
+    }
+
+    public function destroyFromRequest(Request $request): RedirectResponse
+    {
+        $validated = $request->validate([
+            'member_id' => ['required', 'integer', 'exists:members,id'],
+        ]);
+
+        $member = Member::findOrFail($validated['member_id']);
+
+        $this->deleteMember($member);
+
+        return redirect()
+            ->route('members.index', $this->memberIndexRedirectQuery($request))
+            ->with('status', 'Member deleted successfully.');
+    }
+
+    private function deleteMember(Member $member): void
+    {
         if ($member->photo) {
             Storage::disk('public')->delete($member->photo);
         }
 
         $member->delete();
+    }
 
-        return redirect()
-            ->route('members.index')
-            ->with('status', 'Member deleted successfully.');
+    private function memberIndexRedirectQuery(Request $request): array
+    {
+        return collect($request->only(['search', 'branch_id']))
+            ->filter(fn ($value) => filled($value))
+            ->all();
+    }
+
+    private function memberRules(): array
+    {
+        return [
+            'branch_id' => ['nullable', 'integer', 'exists:branches,id'],
+            'title' => ['nullable', 'string', 'max:30'],
+            'surname' => ['required_without:full_name', 'nullable', 'string', 'max:120'],
+            'other_names' => ['required_without:full_name', 'nullable', 'string', 'max:160'],
+            'full_name' => ['required_without_all:surname,other_names', 'nullable', 'string', 'max:255'],
+            'date_of_birth' => ['nullable', 'date'],
+            'place_of_birth' => ['nullable', 'string', 'max:255'],
+            'town_of_origin' => ['nullable', 'string', 'max:255'],
+            'village' => ['nullable', 'string', 'max:255'],
+            'local_government_of_origin' => ['nullable', 'string', 'max:255'],
+            'state_of_origin' => ['nullable', 'string', 'max:255'],
+            'occupation' => ['nullable', 'string', 'max:255'],
+            'height' => ['nullable', 'string', 'max:50'],
+            'phone_number' => ['required', 'string', 'max:50'],
+            'next_of_kin_name' => ['nullable', 'string', 'max:255'],
+            'next_of_kin_relationship' => ['nullable', 'string', 'max:120'],
+            'next_of_kin_phone' => ['nullable', 'string', 'max:50'],
+            'father_name' => ['nullable', 'string', 'max:255'],
+            'mother_name' => ['nullable', 'string', 'max:255'],
+            'wife_name' => ['nullable', 'string', 'max:255'],
+            'house_address' => ['nullable', 'string'],
+            'office_address' => ['nullable', 'string'],
+            'address' => ['nullable', 'string'],
+            'photo' => ['nullable', 'image', 'max:2048'],
+            'dynamic_fields' => ['nullable', 'array'],
+        ];
+    }
+
+    private function normalizeLegacyPayload(array $validated): array
+    {
+        if ((! ($validated['surname'] ?? null) || ! ($validated['other_names'] ?? null)) && ! empty($validated['full_name'])) {
+            $parts = preg_split('/\s+/', trim((string) $validated['full_name']), 2);
+            $validated['surname'] = $validated['surname'] ?? ($parts[0] ?? null);
+            $validated['other_names'] = $validated['other_names'] ?? ($parts[1] ?? null);
+        }
+
+        if (empty($validated['house_address']) && ! empty($validated['address'])) {
+            $validated['house_address'] = $validated['address'];
+        }
+
+        if (empty($validated['branch_id'])) {
+            $validated['branch_id'] = Branch::query()->value('id');
+        }
+
+        if (empty($validated['full_name']) && (! empty($validated['surname']) || ! empty($validated['other_names']))) {
+            $validated['full_name'] = trim(($validated['surname'] ?? '').' '.($validated['other_names'] ?? ''));
+        }
+
+        if (empty($validated['address']) && ! empty($validated['house_address'])) {
+            $validated['address'] = $validated['house_address'];
+        }
+
+        return $validated;
+    }
+
+    private function memberPayload(array $validated): array
+    {
+        $payload = collect(self::MEMBER_FIELDS)
+            ->filter(fn ($field) => array_key_exists($field, $validated))
+            ->mapWithKeys(function ($field) use ($validated) {
+                $value = $validated[$field];
+
+                return [$field => $value === '' ? null : $value];
+            })
+            ->all();
+
+        if (array_key_exists('full_name', $validated)) {
+            $payload['full_name'] = $validated['full_name'];
+        }
+
+        if (array_key_exists('address', $validated)) {
+            $payload['address'] = $validated['address'];
+        }
+
+        if (array_key_exists('dynamic_fields', $validated)) {
+            $payload['dynamic_fields'] = $validated['dynamic_fields'];
+        }
+
+        if (empty($payload['full_name']) && (! empty($payload['surname']) || ! empty($payload['other_names']))) {
+            $payload['full_name'] = trim(($payload['surname'] ?? '').' '.($payload['other_names'] ?? ''));
+        }
+
+        if (empty($payload['address']) && ! empty($payload['house_address'])) {
+            $payload['address'] = $payload['house_address'];
+        }
+
+        return $payload;
     }
 
     private function extractDynamicFields(array $dynamicFieldRows): ?array
@@ -393,6 +661,22 @@ class MemberController extends Controller
         return trim($normalized, '_');
     }
 
+    private function canonicalCsvField(string $normalizedHeader): string
+    {
+        return match ($normalizedHeader) {
+            'dob' => 'date_of_birth',
+            'local_government_of_oigin' => 'local_government_of_origin',
+            'lga_of_origin', 'l_g_a_of_origin' => 'local_government_of_origin',
+            'relationship_of_next_of_kin' => 'next_of_kin_relationship',
+            'next_of_kin_phone_number', 'next_of_kin_phone_no' => 'next_of_kin_phone',
+            'next_of_kin' => 'next_of_kin_name',
+            'father_s_name', 'fathers_name' => 'father_name',
+            'mother_s_name', 'mothers_name' => 'mother_name',
+            'wife_s_name', 'wifes_name' => 'wife_name',
+            default => $normalizedHeader,
+        };
+    }
+
     private function isEmptyCsvRow(array $row): bool
     {
         foreach ($row as $cell) {
@@ -407,22 +691,82 @@ class MemberController extends Controller
     private function mapCsvRowToMemberData(array $preparedHeaders, array $row): array
     {
         $memberData = [
-            'full_name' => null,
+            'branch_name' => null,
+            'title' => null,
+            'surname' => null,
+            'other_names' => null,
+            'date_of_birth' => null,
+            'place_of_birth' => null,
+            'town_of_origin' => null,
+            'village' => null,
+            'local_government_of_origin' => null,
+            'state_of_origin' => null,
+            'occupation' => null,
+            'height' => null,
             'phone_number' => null,
-            'address' => null,
+            'next_of_kin_name' => null,
+            'next_of_kin_relationship' => null,
+            'next_of_kin_phone' => null,
+            'father_name' => null,
+            'mother_name' => null,
+            'wife_name' => null,
+            'house_address' => null,
+            'office_address' => null,
             'photo' => null,
             'dynamic_fields' => [],
         ];
 
+        $coreFields = [
+            'title',
+            'surname',
+            'other_names',
+            'date_of_birth',
+            'place_of_birth',
+            'town_of_origin',
+            'village',
+            'local_government_of_origin',
+            'state_of_origin',
+            'occupation',
+            'height',
+            'phone_number',
+            'next_of_kin_name',
+            'next_of_kin_relationship',
+            'next_of_kin_phone',
+            'father_name',
+            'mother_name',
+            'wife_name',
+            'house_address',
+            'office_address',
+            'photo',
+        ];
+
         foreach ($preparedHeaders as $index => $header) {
             $value = isset($row[$index]) ? trim((string) $row[$index]) : '';
+            $canonicalField = $this->canonicalCsvField($header['normalized']);
 
             if ($header['normalized'] === '') {
                 continue;
             }
 
-            if (in_array($header['normalized'], ['full_name', 'phone_number', 'address', 'photo'], true)) {
-                $memberData[$header['normalized']] = $value !== '' ? $value : null;
+            if (in_array($canonicalField, ['branch', 'branch_name'], true)) {
+                $memberData['branch_name'] = $value !== '' ? $value : null;
+
+                continue;
+            }
+
+            if ($canonicalField === 'address') {
+                $memberData['house_address'] = $value !== '' ? $value : null;
+
+                continue;
+            }
+
+            if (in_array($canonicalField, $coreFields, true)) {
+                $memberData[$canonicalField] = $value !== '' ? $value : null;
+
+                if (in_array($canonicalField, ['occupation', 'state_of_origin'], true) && $value !== '') {
+                    $memberData['dynamic_fields'][$canonicalField] = $value;
+                }
+
                 continue;
             }
 
@@ -483,6 +827,13 @@ class MemberController extends Controller
             return ['error' => 'The CSV file does not contain any member rows to import.'];
         }
 
+        $branchMap = Branch::query()
+            ->get(['id', 'name'])
+            ->mapWithKeys(function (Branch $branch) {
+                return [strtolower(trim($branch->name)) => $branch->id];
+            });
+        $defaultBranchId = Branch::query()->value('id');
+
         $existingPhoneNumbers = Member::query()
             ->pluck('phone_number')
             ->filter()
@@ -504,8 +855,32 @@ class MemberController extends Controller
             $memberData = $this->mapCsvRowToMemberData($preparedHeaders, $row['data']);
             $issues = [];
 
-            if (($memberData['full_name'] ?? null) === null) {
-                $issues[] = 'Full name is required.';
+            if (($memberData['date_of_birth'] ?? null) !== null) {
+                $normalizedDate = $this->normalizeImportDate((string) $memberData['date_of_birth']);
+
+                if ($normalizedDate === null) {
+                    $issues[] = 'Date of birth is invalid. Use DD/MM/YYYY or YYYY-MM-DD.';
+                } else {
+                    $memberData['date_of_birth'] = $normalizedDate;
+                }
+            }
+
+            if (($memberData['branch_name'] ?? null) === null) {
+                if ($defaultBranchId) {
+                    $memberData['branch_id'] = $defaultBranchId;
+                }
+            } elseif (! $branchMap->has(strtolower(trim((string) $memberData['branch_name'])))) {
+                $issues[] = 'Branch was not found. Create the branch first, then import again.';
+            } else {
+                $memberData['branch_id'] = $branchMap[strtolower(trim((string) $memberData['branch_name']))];
+            }
+
+            if (($memberData['surname'] ?? null) === null) {
+                $issues[] = 'Surname is required.';
+            }
+
+            if (($memberData['other_names'] ?? null) === null) {
+                $issues[] = 'Other names are required.';
             }
 
             if (($memberData['phone_number'] ?? null) === null) {
@@ -520,7 +895,7 @@ class MemberController extends Controller
                 }
 
                 if (isset($seenPhones[$phone])) {
-                    $issues[] = 'Duplicate phone number also appears in row ' . $seenPhones[$phone] . '.';
+                    $issues[] = 'Duplicate phone number also appears in row '.$seenPhones[$phone].'.';
                 } else {
                     $seenPhones[$phone] = $row['row_number'];
                 }
@@ -534,7 +909,7 @@ class MemberController extends Controller
                 }
 
                 if (isset($seenEmails[$email])) {
-                    $issues[] = 'Duplicate email also appears in row ' . $seenEmails[$email] . '.';
+                    $issues[] = 'Duplicate email also appears in row '.$seenEmails[$email].'.';
                 } else {
                     $seenEmails[$email] = $row['row_number'];
                 }
@@ -564,6 +939,28 @@ class MemberController extends Controller
             'rows' => $previewRows,
             'summary' => $summary,
         ];
+    }
+
+    private function normalizeImportDate(string $value): ?string
+    {
+        $value = trim($value);
+
+        if ($value === '') {
+            return null;
+        }
+
+        foreach (['!Y-m-d', '!d/m/Y', '!j/n/Y', '!d-m-Y', '!j-n-Y'] as $format) {
+            $date = DateTimeImmutable::createFromFormat($format, $value);
+            $errors = DateTimeImmutable::getLastErrors();
+            $isValid = $errors === false
+                || ($errors['warning_count'] === 0 && $errors['error_count'] === 0);
+
+            if ($date !== false && $isValid) {
+                return $date->format('Y-m-d');
+            }
+        }
+
+        return null;
     }
 
     private function existingDynamicEmailValues(): array
@@ -605,13 +1002,15 @@ class MemberController extends Controller
         return null;
     }
 
-    private function memberSearchQuery(?string $search): Builder
+    private function memberSearchQuery(?string $search, ?int $branchId = null): Builder
     {
         return Member::query()
+            ->when($branchId, fn (Builder $query) => $query->where('branch_id', $branchId))
             ->when($search, function ($query, $searchTerm) {
                 $query->where(function ($memberQuery) use ($searchTerm) {
-                    $memberQuery->where('full_name', 'like', '%' . $searchTerm . '%')
-                        ->orWhere('phone_number', 'like', '%' . $searchTerm . '%');
+                    $memberQuery->where('surname', 'like', '%'.$searchTerm.'%')
+                        ->orWhere('other_names', 'like', '%'.$searchTerm.'%')
+                        ->orWhere('phone_number', 'like', '%'.$searchTerm.'%');
                 });
             });
     }
@@ -629,8 +1028,39 @@ class MemberController extends Controller
     private function prepareExportData(Request $request): array
     {
         $search = $request->input('search');
-        $selectedCoreFields = collect($request->input('fields', ['full_name', 'phone_number', 'address']))
-            ->filter(fn ($field) => in_array($field, ['full_name', 'phone_number', 'address', 'photo', 'created_at', 'updated_at'], true))
+        $selectedBranchId = $request->integer('branch_id') ?: null;
+
+        $allowedCoreFields = [
+            'full_name',
+            'address',
+            'branch',
+            'title',
+            'surname',
+            'other_names',
+            'date_of_birth',
+            'place_of_birth',
+            'town_of_origin',
+            'village',
+            'local_government_of_origin',
+            'state_of_origin',
+            'occupation',
+            'height',
+            'phone_number',
+            'next_of_kin_name',
+            'next_of_kin_relationship',
+            'next_of_kin_phone',
+            'father_name',
+            'mother_name',
+            'wife_name',
+            'house_address',
+            'office_address',
+            'photo',
+            'created_at',
+            'updated_at',
+        ];
+
+        $selectedCoreFields = collect($request->input('fields', ['branch', 'surname', 'other_names', 'phone_number', 'house_address']))
+            ->filter(fn ($field) => in_array($field, $allowedCoreFields, true))
             ->values();
 
         $selectedDynamicFields = collect($request->input('dynamic_fields', []))
@@ -639,10 +1069,11 @@ class MemberController extends Controller
             ->values();
 
         if ($selectedCoreFields->isEmpty() && $selectedDynamicFields->isEmpty()) {
-            $selectedCoreFields = collect(['full_name', 'phone_number', 'address']);
+            $selectedCoreFields = collect(['branch', 'surname', 'other_names', 'phone_number', 'house_address']);
         }
 
-        $members = $this->memberSearchQuery($search)
+        $members = $this->memberSearchQuery($search, $selectedBranchId)
+            ->with('branch')
             ->latest()
             ->get();
 
@@ -654,12 +1085,35 @@ class MemberController extends Controller
         return [$selectedCoreFields, $selectedDynamicFields, $members, $headers];
     }
 
+    private function resolveExportValue(Member $member, string $field): string
+    {
+        if ($field === 'branch') {
+            return (string) ($member->branch?->name ?? '');
+        }
+
+        if ($field === 'full_name') {
+            return $member->full_name;
+        }
+
+        if ($field === 'address') {
+            return (string) ($member->address ?? $member->house_address ?? '');
+        }
+
+        $value = $member->{$field};
+
+        if ($value instanceof CarbonInterface) {
+            return $value->toDateTimeString();
+        }
+
+        return (string) ($value ?? '');
+    }
+
     private function outputExcelRow(array|Collection $cells): void
     {
         echo '<Row>';
 
         foreach ($cells as $cell) {
-            echo '<Cell><Data ss:Type="String">' . $this->escapeExcelValue((string) $cell) . '</Data></Cell>';
+            echo '<Cell><Data ss:Type="String">'.$this->escapeExcelValue((string) $cell).'</Data></Cell>';
         }
 
         echo '</Row>';

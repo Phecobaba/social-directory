@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\Branch;
 use App\Models\Member;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -53,6 +54,7 @@ class MemberControllerTest extends TestCase
 
         $response->assertOk();
         $response->assertSee('Add Member');
+        $response->assertSee('action="/members/import"', false);
     }
 
     public function test_authenticated_user_can_view_member_profile_page(): void
@@ -71,6 +73,16 @@ class MemberControllerTest extends TestCase
         $response->assertSee('Member Profile');
         $response->assertSee($member->full_name);
         $response->assertSee('Department');
+    }
+
+    public function test_authenticated_user_can_open_the_member_import_form_route(): void
+    {
+        $user = User::factory()->create();
+
+        $this->actingAs($user)
+            ->get('/members/import')
+            ->assertOk()
+            ->assertSee('Bulk Import via CSV');
     }
 
     public function test_authenticated_user_can_create_member_with_photo(): void
@@ -190,15 +202,15 @@ class MemberControllerTest extends TestCase
     {
         $user = User::factory()->create();
         $csv = implode("\n", [
-            'full_name,phone_number,address,occupation,state_of_origin',
-            'Jane Doe,08010101010,12 Palm Street,Engineer,Delta',
-            'John Smith,08020202020,45 Unity Road,Teacher,Ondo',
+            'surname,other_names,DOB,phone_number,house_address,occupation,state_of_origin',
+            'Doe,Jane,18/02/1981,08010101010,12 Palm Street,Engineer,Delta',
+            'Smith,John,1985-07-09,08020202020,45 Unity Road,Teacher,Ondo',
         ]);
 
         $filePath = tempnam(sys_get_temp_dir(), 'members-import-');
         file_put_contents($filePath, $csv);
 
-        $upload = new UploadedFile($filePath, 'members.csv', 'text/csv', null, true);
+        $upload = new UploadedFile($filePath, 'my-members-upload.csv', 'text/csv', null, true);
 
         $response = $this->actingAs($user)->post(route('members.import'), [
             'csv_file' => $upload,
@@ -214,19 +226,28 @@ class MemberControllerTest extends TestCase
         $confirmResponse->assertSessionHas('status', 'Members imported successfully from CSV.');
 
         $this->assertDatabaseHas('members', [
-            'full_name' => 'Jane Doe',
+            'surname' => 'Doe',
+            'other_names' => 'Jane',
             'phone_number' => '08010101010',
             'address' => '12 Palm Street',
         ]);
 
         $this->assertDatabaseHas('members', [
-            'full_name' => 'John Smith',
+            'surname' => 'Smith',
+            'other_names' => 'John',
             'phone_number' => '08020202020',
             'address' => '45 Unity Road',
         ]);
 
-        $member = Member::where('full_name', 'Jane Doe')->firstOrFail();
+        $member = Member::where('surname', 'Doe')
+            ->where('other_names', 'Jane')
+            ->firstOrFail();
+        $secondMember = Member::where('surname', 'Smith')
+            ->where('other_names', 'John')
+            ->firstOrFail();
 
+        $this->assertSame('1981-02-18', $member->date_of_birth?->toDateString());
+        $this->assertSame('1985-07-09', $secondMember->date_of_birth?->toDateString());
         $this->assertSame([
             'occupation' => 'Engineer',
             'state_of_origin' => 'Delta',
@@ -244,9 +265,9 @@ class MemberControllerTest extends TestCase
         ]);
 
         $csv = implode("\n", [
-            'full_name,phone_number,address,email',
-            'Jane Doe,08010101010,12 Palm Street,jane@example.com',
-            'John Smith,08010101010,45 Unity Road,jane@example.com',
+            'surname,other_names,phone_number,house_address,email',
+            'Doe,Jane,08010101010,12 Palm Street,jane@example.com',
+            'Smith,John,08010101010,45 Unity Road,jane@example.com',
         ]);
 
         $filePath = tempnam(sys_get_temp_dir(), 'members-duplicate-import-');
@@ -270,8 +291,8 @@ class MemberControllerTest extends TestCase
 
         $confirmResponse->assertRedirect(route('members.create'));
         $confirmResponse->assertSessionHasErrors('csv_file');
-        $this->assertDatabaseMissing('members', ['full_name' => 'Jane Doe']);
-        $this->assertDatabaseMissing('members', ['full_name' => 'John Smith']);
+        $this->assertDatabaseMissing('members', ['surname' => 'Doe', 'other_names' => 'Jane']);
+        $this->assertDatabaseMissing('members', ['surname' => 'Smith', 'other_names' => 'John']);
     }
 
     public function test_authenticated_user_can_download_csv_template(): void
@@ -284,7 +305,7 @@ class MemberControllerTest extends TestCase
         $response->assertHeader('content-type', 'text/csv; charset=UTF-8');
         $response->assertHeader('content-disposition', 'attachment; filename=dsfc-members-template.csv');
         $this->assertStringContainsString(
-            'full_name,phone_number,address,occupation,state_of_origin',
+            'branch,title,surname,other_names,DOB,place_of_birth,town_of_origin,village,local_government_of_origin,state_of_origin,occupation,height,phone_number,next_of_kin_phone_number,next_of_kin_name,relationship_of_next_of_kin,father_name,mother_name,wife_name,house_address,office_address',
             $response->streamedContent()
         );
     }
@@ -432,6 +453,60 @@ class MemberControllerTest extends TestCase
         $this->assertDatabaseMissing('members', ['id' => $members[0]->id]);
         $this->assertDatabaseMissing('members', ['id' => $members[1]->id]);
         Storage::disk('public')->assertMissing($photo);
+    }
+
+    public function test_authenticated_user_can_bulk_delete_selected_members_from_filtered_branch_page(): void
+    {
+        $user = User::factory()->create();
+        $branch = Branch::factory()->create();
+        $otherBranch = Branch::factory()->create();
+        $members = Member::factory()->count(2)->create(['branch_id' => $branch->id]);
+        $otherMember = Member::factory()->create(['branch_id' => $otherBranch->id]);
+
+        $response = $this->actingAs($user)->post(route('members.bulk-delete'), [
+            'branch_id' => $branch->id,
+            'member_ids' => $members->pluck('id')->all(),
+        ]);
+
+        $response->assertRedirect(route('members.index', ['branch_id' => $branch->id]));
+        $response->assertSessionHas('status', 'Selected members deleted successfully.');
+
+        foreach ($members as $member) {
+            $this->assertDatabaseMissing('members', ['id' => $member->id]);
+        }
+
+        $this->assertDatabaseHas('members', ['id' => $otherMember->id]);
+    }
+
+    public function test_authenticated_user_can_delete_member_from_filtered_branch_page(): void
+    {
+        $user = User::factory()->create();
+        $branch = Branch::factory()->create();
+        $member = Member::factory()->create(['branch_id' => $branch->id]);
+
+        $response = $this->actingAs($user)->delete(route('members.destroy', $member), [
+            'branch_id' => $branch->id,
+        ]);
+
+        $response->assertRedirect(route('members.index', ['branch_id' => $branch->id]));
+        $response->assertSessionHas('status', 'Member deleted successfully.');
+        $this->assertDatabaseMissing('members', ['id' => $member->id]);
+    }
+
+    public function test_authenticated_user_can_delete_member_when_form_posts_delete_to_members_index(): void
+    {
+        $user = User::factory()->create();
+        $branch = Branch::factory()->create();
+        $member = Member::factory()->create(['branch_id' => $branch->id]);
+
+        $response = $this->actingAs($user)->delete(route('members.destroy-from-request'), [
+            'member_id' => $member->id,
+            'branch_id' => $branch->id,
+        ]);
+
+        $response->assertRedirect(route('members.index', ['branch_id' => $branch->id]));
+        $response->assertSessionHas('status', 'Member deleted successfully.');
+        $this->assertDatabaseMissing('members', ['id' => $member->id]);
     }
 
     private function fakePngUpload(string $name): UploadedFile

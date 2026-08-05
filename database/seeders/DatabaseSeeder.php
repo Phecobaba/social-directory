@@ -2,6 +2,7 @@
 
 namespace Database\Seeders;
 
+use App\Models\Branch;
 use App\Models\User;
 use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 use Illuminate\Database\Seeder;
@@ -16,6 +17,14 @@ class DatabaseSeeder extends Seeder
      */
     public function run(): void
     {
+        foreach (['Lagos Branch', 'Anambra Branch', 'Enugu Branch'] as $branchName) {
+            Branch::query()->firstOrCreate([
+                'name' => $branchName,
+            ], [
+                'is_active' => true,
+            ]);
+        }
+
         User::query()->updateOrCreate([
             'email' => 'admin@dsfc.ng',
         ], [

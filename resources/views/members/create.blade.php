@@ -25,19 +25,119 @@
                             </div>
                         @endif
 
-                        <div class="form-group">
-                            <label for="full_name">Full Name</label>
-                            <input type="text" class="form-control" id="full_name" name="full_name" value="{{ old('full_name') }}" required>
+                        <div class="form-row">
+                            <div class="form-group col-md-6">
+                                <label for="branch_id">Branch</label>
+                                <select id="branch_id" name="branch_id" class="form-control" required>
+                                    <option value="">Select branch</option>
+                                    @foreach ($branches as $branch)
+                                        <option value="{{ $branch->id }}" {{ (string) old('branch_id') === (string) $branch->id ? 'selected' : '' }}>{{ $branch->name }}</option>
+                                    @endforeach
+                                </select>
+                            </div>
+                            <div class="form-group col-md-6">
+                                <label for="title">Title</label>
+                                <input type="text" class="form-control" id="title" name="title" value="{{ old('title') }}" placeholder="e.g. Mr">
+                            </div>
+                        </div>
+
+                        <div class="form-row">
+                            <div class="form-group col-md-6">
+                                <label for="surname">Surname</label>
+                                <input type="text" class="form-control" id="surname" name="surname" value="{{ old('surname') }}" required>
+                            </div>
+                            <div class="form-group col-md-6">
+                                <label for="other_names">Other Names</label>
+                                <input type="text" class="form-control" id="other_names" name="other_names" value="{{ old('other_names') }}" required>
+                            </div>
+                        </div>
+
+                        <div class="form-row">
+                            <div class="form-group col-md-6">
+                                <label for="date_of_birth">Date of Birth</label>
+                                <input type="date" class="form-control" id="date_of_birth" name="date_of_birth" value="{{ old('date_of_birth') }}">
+                            </div>
+                            <div class="form-group col-md-6">
+                                <label for="place_of_birth">Place of Birth</label>
+                                <input type="text" class="form-control" id="place_of_birth" name="place_of_birth" value="{{ old('place_of_birth') }}">
+                            </div>
+                        </div>
+
+                        <div class="form-row">
+                            <div class="form-group col-md-4">
+                                <label for="town_of_origin">Town of Origin</label>
+                                <input type="text" class="form-control" id="town_of_origin" name="town_of_origin" value="{{ old('town_of_origin') }}">
+                            </div>
+                            <div class="form-group col-md-4">
+                                <label for="village">Village</label>
+                                <input type="text" class="form-control" id="village" name="village" value="{{ old('village') }}">
+                            </div>
+                            <div class="form-group col-md-4">
+                                <label for="local_government_of_origin">L.G.A of Origin</label>
+                                <input type="text" class="form-control" id="local_government_of_origin" name="local_government_of_origin" value="{{ old('local_government_of_origin') }}">
+                            </div>
+                        </div>
+
+                        <div class="form-row">
+                            <div class="form-group col-md-4">
+                                <label for="state_of_origin">State of Origin</label>
+                                <input type="text" class="form-control" id="state_of_origin" name="state_of_origin" value="{{ old('state_of_origin') }}">
+                            </div>
+                            <div class="form-group col-md-4">
+                                <label for="occupation">Occupation</label>
+                                <input type="text" class="form-control" id="occupation" name="occupation" value="{{ old('occupation') }}">
+                            </div>
+                            <div class="form-group col-md-4">
+                                <label for="height">Height</label>
+                                <input type="text" class="form-control" id="height" name="height" value="{{ old('height') }}" placeholder="e.g. 180cm">
+                            </div>
+                        </div>
+
+                        <div class="form-row">
+                            <div class="form-group col-md-6">
+                                <label for="phone_number">Phone Number</label>
+                                <input type="text" class="form-control" id="phone_number" name="phone_number" value="{{ old('phone_number') }}" required>
+                            </div>
+                            <div class="form-group col-md-6">
+                                <label for="next_of_kin_phone">Next of Kin Phone</label>
+                                <input type="text" class="form-control" id="next_of_kin_phone" name="next_of_kin_phone" value="{{ old('next_of_kin_phone') }}">
+                            </div>
+                        </div>
+
+                        <div class="form-row">
+                            <div class="form-group col-md-6">
+                                <label for="next_of_kin_name">Next of Kin</label>
+                                <input type="text" class="form-control" id="next_of_kin_name" name="next_of_kin_name" value="{{ old('next_of_kin_name') }}">
+                            </div>
+                            <div class="form-group col-md-6">
+                                <label for="next_of_kin_relationship">Relationship of Next of Kin</label>
+                                <input type="text" class="form-control" id="next_of_kin_relationship" name="next_of_kin_relationship" value="{{ old('next_of_kin_relationship') }}">
+                            </div>
+                        </div>
+
+                        <div class="form-row">
+                            <div class="form-group col-md-4">
+                                <label for="father_name">Father's Name</label>
+                                <input type="text" class="form-control" id="father_name" name="father_name" value="{{ old('father_name') }}">
+                            </div>
+                            <div class="form-group col-md-4">
+                                <label for="mother_name">Mother's Name</label>
+                                <input type="text" class="form-control" id="mother_name" name="mother_name" value="{{ old('mother_name') }}">
+                            </div>
+                            <div class="form-group col-md-4">
+                                <label for="wife_name">Wife's Name</label>
+                                <input type="text" class="form-control" id="wife_name" name="wife_name" value="{{ old('wife_name') }}">
+                            </div>
                         </div>
 
                         <div class="form-group">
-                            <label for="phone_number">Phone Number</label>
-                            <input type="text" class="form-control" id="phone_number" name="phone_number" value="{{ old('phone_number') }}" required>
+                            <label for="house_address">House Address</label>
+                            <textarea class="form-control" id="house_address" name="house_address" rows="3">{{ old('house_address') }}</textarea>
                         </div>
 
                         <div class="form-group">
-                            <label for="address">Address</label>
-                            <textarea class="form-control" id="address" name="address" rows="4">{{ old('address') }}</textarea>
+                            <label for="office_address">Office Address</label>
+                            <textarea class="form-control" id="office_address" name="office_address" rows="3">{{ old('office_address') }}</textarea>
                         </div>
 
                         <div class="form-group">
@@ -46,16 +146,13 @@
                             <small class="form-text text-muted">Optional. Upload a member profile image.</small>
                         </div>
 
-                        {{-- Custom fields section begin --}}
                         @php
                             $customFieldRows = old('dynamic_fields', []);
                         @endphp
                         <div class="card card-outline card-secondary">
                             <div class="card-header d-flex justify-content-between align-items-center">
                                 <h3 class="card-title mb-0">Custom Fields</h3>
-                                <button type="button" class="btn btn-sm btn-primary" id="add-custom-field">
-                                    Add Field
-                                </button>
+                                <button type="button" class="btn btn-sm btn-primary" id="add-custom-field">Add Field</button>
                             </div>
                             <div class="card-body">
                                 <div id="custom-fields-container">
@@ -63,21 +160,11 @@
                                         <div class="form-row align-items-end mb-3 custom-field-row">
                                             <div class="col-md-5">
                                                 <label>Field Name</label>
-                                                <input
-                                                    type="text"
-                                                    name="dynamic_fields[{{ $index }}][key]"
-                                                    class="form-control"
-                                                    value="{{ $customField['key'] ?? '' }}"
-                                                >
+                                                <input type="text" name="dynamic_fields[{{ $index }}][key]" class="form-control" value="{{ $customField['key'] ?? '' }}">
                                             </div>
                                             <div class="col-md-5">
                                                 <label>Field Value</label>
-                                                <input
-                                                    type="text"
-                                                    name="dynamic_fields[{{ $index }}][value]"
-                                                    class="form-control"
-                                                    value="{{ $customField['value'] ?? '' }}"
-                                                >
+                                                <input type="text" name="dynamic_fields[{{ $index }}][value]" class="form-control" value="{{ $customField['value'] ?? '' }}">
                                             </div>
                                             <div class="col-md-2">
                                                 <button type="button" class="btn btn-danger btn-block remove-custom-field">Remove</button>
@@ -88,7 +175,6 @@
                                 <p class="text-muted mb-0">Add optional key-value details for this member.</p>
                             </div>
                         </div>
-                        {{-- Custom fields section end --}}
                     </div>
 
                     <div class="card-footer">
@@ -104,21 +190,18 @@
                 <div class="card-header">
                     <h3 class="card-title">Bulk Import via CSV</h3>
                 </div>
-                <form action="{{ route('members.import') }}" method="POST" enctype="multipart/form-data">
+                <form action="{{ route('members.import', absolute: false) }}" method="POST" enctype="multipart/form-data">
                     @csrf
 
                     <div class="card-body">
                         @if ($errors->has('csv_file'))
-                            <div class="alert alert-danger">
-                                {{ $errors->first('csv_file') }}
-                            </div>
+                            <div class="alert alert-danger">{{ $errors->first('csv_file') }}</div>
                         @endif
 
+                        <p class="text-muted">Upload a CSV file to add multiple members at once.</p>
                         <p class="text-muted">
-                            Upload a CSV file to add multiple members at once. Standard columns such as <code>full_name</code>, <code>phone_number</code>, and <code>address</code> map directly to member fields.
-                        </p>
-                        <p class="text-muted">
-                            Any extra CSV columns are automatically stored as each member's custom fields.
+                            Required member identity columns: <code>phone_number</code>, <code>surname</code>, and <code>other_names</code>.
+                            Branch can be provided with <code>branch</code> (or the system default branch is used).
                         </p>
 
                         <div class="form-group">
@@ -131,8 +214,8 @@
                         </a>
 
                         <div class="alert alert-light border mb-0">
-                            <strong>Example header row:</strong><br>
-                            <code>full_name,phone_number,address,occupation,state_of_origin</code>
+                            <strong>Supported CSV fields include:</strong><br>
+                            <code>branch,title,surname,other_names,DOB,place_of_birth,town_of_origin,village,local_government_of_origin,state_of_origin,occupation,height,phone_number,next_of_kin_phone_number,next_of_kin_name,relationship_of_next_of_kin,father_name,mother_name,wife_name,house_address,office_address</code>
                         </div>
                     </div>
 
@@ -187,9 +270,10 @@
                                     <tr>
                                         <th>Row</th>
                                         <th>Status</th>
-                                        <th>Full Name</th>
+                                        <th>Branch</th>
+                                        <th>Surname</th>
+                                        <th>Other Names</th>
                                         <th>Phone</th>
-                                        <th>Address</th>
                                         <th>Custom Fields</th>
                                         <th>Issues</th>
                                     </tr>
@@ -207,9 +291,10 @@
                                                     <span class="badge badge-danger">Invalid</span>
                                                 @endif
                                             </td>
-                                            <td>{{ $previewRow['member_data']['full_name'] ?: 'N/A' }}</td>
+                                            <td>{{ $previewRow['member_data']['branch_name'] ?? 'N/A' }}</td>
+                                            <td>{{ $previewRow['member_data']['surname'] ?: 'N/A' }}</td>
+                                            <td>{{ $previewRow['member_data']['other_names'] ?: 'N/A' }}</td>
                                             <td>{{ $previewRow['member_data']['phone_number'] ?: 'N/A' }}</td>
-                                            <td>{{ $previewRow['member_data']['address'] ?: 'N/A' }}</td>
                                             <td>{{ $previewRow['dynamic_field_count'] }}</td>
                                             <td>
                                                 @if ($previewRow['issues'])
@@ -229,17 +314,13 @@
                         </div>
                     </div>
                     <div class="card-footer d-flex flex-column flex-md-row justify-content-between align-items-md-center">
-                        <p class="text-muted mb-3 mb-md-0">
-                            Only rows marked <strong>Ready</strong> will be imported.
-                        </p>
+                        <p class="text-muted mb-3 mb-md-0">Only rows marked <strong>Ready</strong> will be imported.</p>
                         <div class="d-flex flex-column flex-sm-row">
-                            <form action="{{ route('members.import.clear') }}" method="POST" class="mr-sm-2 mb-2 mb-sm-0">
+                            <form action="{{ route('members.import.clear', absolute: false) }}" method="POST" class="mr-sm-2 mb-2 mb-sm-0">
                                 @csrf
-                                <button type="submit" class="btn btn-default btn-block">
-                                    Clear Preview
-                                </button>
+                                <button type="submit" class="btn btn-default btn-block">Clear Preview</button>
                             </form>
-                            <form action="{{ route('members.import.confirm') }}" method="POST">
+                            <form action="{{ route('members.import.confirm', absolute: false) }}" method="POST">
                                 @csrf
                                 <button type="submit" class="btn btn-success btn-block" {{ $importPreview['summary']['ready'] === 0 ? 'disabled' : '' }}>
                                     Confirm Import
@@ -252,7 +333,6 @@
         </div>
     @endif
 
-    {{-- Custom fields section begin --}}
     <script>
         document.addEventListener('DOMContentLoaded', function () {
             const addCustomFieldButton = document.getElementById('add-custom-field');
@@ -296,5 +376,4 @@
             });
         });
     </script>
-    {{-- Custom fields section end --}}
 @endsection
